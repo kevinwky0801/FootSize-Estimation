@@ -8,6 +8,8 @@ import cv2
 from sklearn import svm
 import sqlite3
 from datetime import datetime
+from PIL import Image
+import uuid
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -97,28 +99,26 @@ uploaded_file = st.file_uploader("Choose an image...")
 
 if uploaded_file is not None:
     height_size = [
-        17.0, 17.5, 18.0, 18.5, 19.0, 19.6, 20.2, 20.8, 21.5, 22.1,
-        22.7, 23.4, 24.1, 24.7, 25.4, 26.0, 26.7, 27.4
+        21.0, 21.6, 22.0, 22.4, 22.9, 23.3, 23.7, 24.0, 24.4, 25.0,
+        25.7, 26.0, 26.4, 26.8, 27.1, 27.5, 27.9, 28.3, 28.8
     ]
-    
-    Size_US_h = [
-        "10C", "10.5C", "11C", "11.5C", "12C", "13C", "1Y", "2Y", "3Y", "4Y",
-        "5", "5.5", "6", "6.5", "7", "8", "8.5", "9"
-    ]
-    
+
     Size_UK_h = [
-        "9.5", "10", "10.5", "11", "11.5", "12.5", "13.5", "1", "2", "3",
-        "4", "4.5", "5.5", "6", "6.5", "7", "7.5", "8"
+        "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "5.5", "6",
+        "6.5", "7", "7.5", "8", "8.5", "9", "9.5", "10", "11"
     ]
-    
+
     Size_EU_h = [
-        "27.5", "28", "29", "30", "30.5", "31.5", "32.5", "33.5", "34.5", "35",
-        "36", "36.5", "37.5", "38", "39", "40", "41", "42"
+        "33.5", "34", "35", "35.5", "36", "37.5", "38", "38.5", "39", "40",
+        "41", "42", "42.5", "43", "44", "44.5", "45", "45.5", "46"
     ]
-    
+
+    Size_US_h = [
+        "3", "3.5", "4", "4.5", "5", "5.5", "6", "6.5", "7", "7.5",
+        "8", "8.5", "9", "9.5", "10", "10.5", "11", "11.5", "12"
+    ]
+
     Size_VN_h = Size_EU_h
-
-
 
     st.image(uploaded_file, caption='Input Image', use_container_width=True)
 
@@ -137,13 +137,22 @@ if uploaded_file is not None:
     predicted_class_num = clf.predict([test_img])[0]
     predicted_class_name = reverse_dict_label[predicted_class_num]
 
-    # Let user confirm or override the predicted class
     class_options = list(dict_label.keys())
     selected_class_name = st.selectbox("Predicted Class (you can change it if needed):", 
                                        class_options, 
                                        index=class_options.index(predicted_class_name))
     img_class = dict_label[selected_class_name]
     st.info(f"[CLASS CONFIRMED] Proceeding with: **{selected_class_name}**")
+
+    # --- NEW: Save Uploaded Image ---
+    if st.button("Save Uploaded Image to Classified Folder"):
+        save_dir = os.path.join("image_classified", selected_class_name)
+        os.makedirs(save_dir, exist_ok=True)
+        img = Image.open(uploaded_file)
+        filename = f"{uuid.uuid4()}.png"
+        save_path = os.path.join(save_dir, filename)
+        img.save(save_path)
+        st.success(f"Image saved to {save_path}")
 
     preprocess_img = preprocess(og_img, img_class)
     st.image(preprocess_img, caption='Preprocessed Image', use_container_width=True)
@@ -216,4 +225,3 @@ if uploaded_file is not None:
                     st.error("Username already exists. Try another one.")
     else:
         st.info("Thank you for using the Foot Size Estimation app!")
-
