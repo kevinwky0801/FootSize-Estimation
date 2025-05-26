@@ -5,11 +5,13 @@ import skimage
 from foot_estimate import *
 import os
 import cv2
-from sklearn import svm
 import sqlite3
 from datetime import datetime
 from PIL import Image
 import uuid
+
+# Import the ImageClassifier class from classifier.py
+from classifier import ImageClassifier
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -66,30 +68,14 @@ def add_user(username, name, password, email, role='user'):
 
 init_db()
 
-# --- CLASSIFIER ---
-@st.cache_resource
-def classifier():
-    dict_label = {
-        'normal_img': 0,
-        'white_background_img': 1,
-        'skin_background_img': 2,
-        'pattern_background_img': 3,
-        'curve_background_img': 4
-    }
-    reverse_dict_label = {v: k for k, v in dict_label.items()}
-    X, y = [], []
-    for folder in os.listdir('image_classified'):
-        for img_path in os.listdir(os.path.join('image_classified', folder)):
-            img = cv2.imread(os.path.join('image_classified', folder, img_path))
-            if img is not None:
-                img = cv2.resize(img, (128, 128))
-                img = img / 255
-                img = img.flatten()
-                X.append(img)
-                y.append(dict_label[folder])
-    clf = svm.SVC(gamma=0.001, C=100)
-    clf.fit(X, y)
-    return clf, dict_label, reverse_dict_label
+# --- IMAGE ENHANCEMENT FUNCTION ---
+def enhance_image(img):
+    # img is RGB numpy array
+    kernel = np.array([[0, -1, 0],
+                       [-1, 5, -1],
+                       [0, -1, 0]])
+    sharpened = cv2.filter2D(img, -1, kernel)
+    return sharpened
 
 # --- UI ---
 st.title('Welcome To Project Foot Size Estimation!')
@@ -99,25 +85,14 @@ uploaded_file = st.file_uploader("Choose an image...")
 
 if uploaded_file is not None:
     height_size = [
-        21.0, 21.6, 22.0, 22.4, 22.9, 23.3, 23.7, 24.0, 24.4, 25.0,
-        25.7, 26.0, 26.4, 26.8, 27.1, 27.5, 27.9, 28.3, 28.8
+        15.5, 16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0,
+        20.5, 21.0, 21.6, 22.0, 22.4, 22.9, 23.3, 23.7, 24.0, 24.4,
+        25.0, 25.7, 26.0, 26.4, 26.8, 27.1, 27.5, 27.9, 28.3, 28.8
     ]
 
-    Size_UK_h = [
-        "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "5.5", "6",
-        "6.5", "7", "7.5", "8", "8.5", "9", "9.5", "10", "11"
-    ]
-
-    Size_EU_h = [
-        "33.5", "34", "35", "35.5", "36", "37.5", "38", "38.5", "39", "40",
-        "41", "42", "42.5", "43", "44", "44.5", "45", "45.5", "46"
-    ]
-
-    Size_US_h = [
-        "3", "3.5", "4", "4.5", "5", "5.5", "6", "6.5", "7", "7.5",
-        "8", "8.5", "9", "9.5", "10", "10.5", "11", "11.5", "12"
-    ]
-
+    Size_UK_h = [str(round(8.5 - 0.5 * (24 - i), 1)).rstrip('0').rstrip('.') for i in range(len(height_size))]
+    Size_EU_h = [str(round(float(uk) * 1.27 + 33, 1)).rstrip('0').rstrip('.') for uk in Size_UK_h]
+    Size_US_h = [str(round(float(uk) + 1, 1)).rstrip('0').rstrip('.') for uk in Size_UK_h]
     Size_VN_h = Size_EU_h
 
     st.image(uploaded_file, caption='Input Image', use_container_width=True)
@@ -128,23 +103,26 @@ if uploaded_file is not None:
         st.error("Error reading the image. Please upload a valid image file.")
         st.stop()
 
-    test_img = cv2.cvtColor(og_img.copy(), cv2.COLOR_RGB2BGR)
+    enhanced_img = enhance_image(og_img)
+    st.image(enhanced_img, caption='Enhanced Image', use_container_width=True)
+
+    test_img = cv2.cvtColor(enhanced_img.copy(), cv2.COLOR_RGB2BGR)
     test_img = cv2.resize(test_img, (128, 128))
     test_img = test_img / 255
     test_img = test_img.flatten()
 
-    clf, dict_label, reverse_dict_label = classifier()
-    predicted_class_num = clf.predict([test_img])[0]
-    predicted_class_name = reverse_dict_label[predicted_class_num]
+    # Instantiate your classifier here
+    clf = ImageClassifier()
+    predicted_class_num = clf.predict(test_img)
+    predicted_class_name = clf.reverse_dict_label[predicted_class_num]
 
-    class_options = list(dict_label.keys())
+    class_options = list(clf.dict_label.keys())
     selected_class_name = st.selectbox("Predicted Class (you can change it if needed):", 
                                        class_options, 
                                        index=class_options.index(predicted_class_name))
-    img_class = dict_label[selected_class_name]
+    img_class = clf.dict_label[selected_class_name]
     st.info(f"[CLASS CONFIRMED] Proceeding with: **{selected_class_name}**")
 
-    # --- NEW: Save Uploaded Image ---
     if st.button("Save Uploaded Image to Classified Folder"):
         save_dir = os.path.join("image_classified", selected_class_name)
         os.makedirs(save_dir, exist_ok=True)
@@ -154,7 +132,7 @@ if uploaded_file is not None:
         img.save(save_path)
         st.success(f"Image saved to {save_path}")
 
-    preprocess_img = preprocess(og_img, img_class)
+    preprocess_img = preprocess(enhanced_img, img_class)
     st.image(preprocess_img, caption='Preprocessed Image', use_container_width=True)
 
     clustered_img = kMeans_cluster(preprocess_img, img_class)
