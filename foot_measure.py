@@ -9,9 +9,10 @@ import sqlite3
 from datetime import datetime
 from PIL import Image
 import uuid
-
-# Import the ImageClassifier class from classifier.py
 from classifier import ImageClassifier
+import io
+import base64
+from manual_adjust import manual_a4_adjustment, manual_foot_adjustment
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -70,12 +71,18 @@ init_db()
 
 # --- IMAGE ENHANCEMENT FUNCTION ---
 def enhance_image(img):
-    # img is RGB numpy array
     kernel = np.array([[0, -1, 0],
                        [-1, 5, -1],
                        [0, -1, 0]])
     sharpened = cv2.filter2D(img, -1, kernel)
     return sharpened
+
+# --- CUSTOM image_to_url FUNCTION ---
+def image_to_url(img: Image.Image):
+    buffered = io.BytesIO()
+    img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
 
 # --- UI ---
 st.title('Welcome To Project Foot Size Estimation!')
@@ -111,7 +118,6 @@ if uploaded_file is not None:
     test_img = test_img / 255
     test_img = test_img.flatten()
 
-    # Instantiate your classifier here
     clf = ImageClassifier()
     predicted_class_num = clf.predict(test_img)
     predicted_class_name = clf.reverse_dict_label[predicted_class_num]
@@ -143,14 +149,21 @@ if uploaded_file is not None:
 
     boundRect, contours, contours_poly, img = getBoundingBox(edge_detected_img)
 
-    if img_class == 0:
-        pdraw = drawCnt(boundRect[0], contours, contours_poly, img)
-        cropped_img, pcropped_img = cropOrig(boundRect[0], clustered_img)
-    else:
-        pdraw = drawCnt(boundRect[1], contours, contours_poly, img)
-        cropped_img, pcropped_img = cropOrig(boundRect[1], clustered_img)
+    a4_box = boundRect[0] if img_class == 0 else boundRect[1]
 
-    st.image(pdraw, caption='A4 Paper Bounding Box', use_container_width=True)
+    # Show auto-detected A4 bounding box
+    pdraw = drawCnt(a4_box, contours, contours_poly, img)
+    st.image(pdraw, caption='[AUTO] A4 Paper Bounding Box (Auto-Detected)', use_container_width=True)
+
+    # Checkbox to enable manual A4 box adjustment
+    manual_adjust_a4 = st.checkbox("Manually adjust A4 bounding box")
+
+    if manual_adjust_a4:
+        manual_a4_box = manual_a4_adjustment(a4_box, contours, contours_poly, img)
+    else:
+        manual_a4_box = a4_box
+
+    cropped_img, pcropped_img = cropOrig(manual_a4_box, clustered_img)
     st.image(cropped_img, caption='Cropped Image', use_container_width=True)
 
     new_img = overlayImage(cropped_img, pcropped_img)
@@ -158,10 +171,19 @@ if uploaded_file is not None:
 
     fedged = footEdgeDetection(new_img)
     fboundRect, fcnt, fcntpoly, fimg = getBoundingBox(fedged)
-    fdraw = drawCnt(fboundRect[0], fcnt, fcntpoly, fimg)
-    st.image(fdraw, caption='Foot Edge Detected', use_container_width=True)
 
-    ofs_w, ofs_h, fh, fw, ph, pw = calcFeetSize(pcropped_img, fboundRect)
+    fdraw = drawCnt(fboundRect[0], fcnt, fcntpoly, fimg)
+    st.image(fdraw, caption='Foot Edge Detected (Auto)', use_container_width=True)
+
+    # Checkbox to enable manual Foot box adjustment
+    manual_adjust_foot = st.checkbox("Manually adjust Foot bounding box")
+
+    if manual_adjust_foot:
+        manual_foot_box = manual_foot_adjustment(fboundRect[0], fcnt, fcntpoly, fimg)
+    else:
+        manual_foot_box = fboundRect[0]
+
+    ofs_w, ofs_h, fh_, fw_, ph, pw = calcFeetSize(pcropped_img, [manual_foot_box])
     foot_length = round(ofs_h, 3)
     st.write(f"[INFO] Foot's length (cm): {foot_length}")
 
